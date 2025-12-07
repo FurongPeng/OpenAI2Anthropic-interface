@@ -1,0 +1,303 @@
+# Anthropic to OpenAI API 代理服务器
+
+[![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md) [![中文](https://img.shields.io/badge/lang-中文-red.svg)](README_CN.md)
+
+一个轻量级的Python代理服务器，将Anthropic Messages API格式的请求转换为OpenAI Chat Completions API格式，并转发到本地OpenAI风格的服务。
+
+## ✨ 特性
+
+### 🟢 支持的功能
+- `POST /v1/messages` - Anthropic Messages API端点
+- 文本对话（`type: text`）
+- 单轮/多轮对话
+- System提示词
+- 流式响应（stream=true/false）
+- 基本参数（model, temperature, top_p, max_tokens）
+- Content数组格式（多个text块拼接）
+- 国际化支持（中文/英文）
+- 错误处理和参数验证
+- 无外部依赖，仅使用Python原生模块
+
+### 🔴 不支持的功能
+- Tools/function calling
+- 图片/文件/音频
+- 多模态内容
+
+## 🚀 快速开始
+
+### 环境要求
+- Python 3.6 或更高版本
+- 无需额外安装包（仅使用Python标准库）
+
+### 安装和运行
+
+1. **下载代码**
+   ```bash
+   git clone https://github.com/yourusername/anthropic-openai-proxy.git
+   cd anthropic-openai-proxy
+   ```
+
+2. **运行代理服务器**
+   ```bash
+   python3 proxy_server_i18n.py
+   ```
+
+   服务器将在 `http://localhost:8082` 启动
+
+3. **配置后端服务**
+
+   默认配置为：
+   - OpenAI后端地址：`http://10.108.201.163:1025`
+   - 端点：`/v1/chat/completions`
+
+   如需修改，编辑 `proxy_server_i18n.py` 中的 `Config` 类。
+
+## 📖 使用示例
+
+### 使用curl
+
+#### 非流式请求
+```bash
+curl -X POST http://localhost:8082/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "DeepSeek32B",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "你好！"}
+    ]
+  }'
+```
+
+#### 流式请求
+```bash
+curl -X POST http://localhost:8082/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "Accept: text/event-stream" \
+  -d '{
+    "model": "DeepSeek32B",
+    "max_tokens": 100,
+    "messages": [
+      {"role": "user", "content": "介绍一下春天"}
+    ],
+    "stream": true
+  }' --no-buffer
+```
+
+#### 带系统提示的请求
+```bash
+curl -X POST http://localhost:8082/v1/messages \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "DeepSeek32B",
+    "system": "你是一个友好的助手，总是用中文回答。",
+    "max_tokens": 100,
+    "messages": [
+      {"role": "user", "content": "Hello, how are you?"}
+    ]
+  }'
+```
+
+### 使用Python
+
+```python
+import anthropic
+
+# 创建客户端，指向代理服务器
+client = anthropic.Anthropic(
+    base_url="http://localhost:8082",
+    api_key="dummy-key"  # 代理服务器不验证API密钥
+)
+
+# 发送请求
+message = client.messages.create(
+    model="DeepSeek32B",
+    max_tokens=1024,
+    messages=[
+        {"role": "user", "content": "介绍一下Python"}
+    ]
+)
+
+print(message.content[0].text)
+```
+
+### 使用Node.js
+
+```javascript
+import Anthropic from '@anthropic-ai/sdk';
+
+const anthropic = new Anthropic({
+    baseURL: 'http://localhost:8082',
+    apiKey: 'dummy-key', // 代理服务器不验证API密钥
+});
+
+const message = await anthropic.messages.create({
+    model: 'DeepSeek32B',
+    max_tokens: 1024,
+    messages: [
+        { role: 'user', content: '介绍一下JavaScript' }
+    ]
+});
+
+console.log(message.content[0].text);
+```
+
+## 🔄 请求/响应转换
+
+### Anthropic请求 → OpenAI请求
+
+```json
+// Anthropic格式
+{
+  "model": "DeepSeek32B",
+  "system": "You are a helpful assistant",
+  "max_tokens": 100,
+  "temperature": 0.7,
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "Hello"},
+        {"type": "text", "text": " world!"}
+      ]
+    }
+  ]
+}
+
+// 转换为OpenAI格式
+{
+  "model": "DeepSeek32B",
+  "messages": [
+    {"role": "system", "content": "You are a helpful assistant"},
+    {"role": "user", "content": "Hello world!"}
+  ],
+  "max_tokens": 100,
+  "temperature": 0.7,
+  "stream": false
+}
+```
+
+### OpenAI响应 → Anthropic响应
+
+```json
+// OpenAI格式
+{
+  "choices": [
+    {
+      "message": {
+        "content": "Hello! How can I help you?",
+        "role": "assistant"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 10,
+    "completion_tokens": 8
+  }
+}
+
+// 转换为Anthropic格式
+{
+  "id": "msg_01XFDUDYJgAACzvnptvVoYEL",
+  "type": "message",
+  "role": "assistant",
+  "model": "DeepSeek32B",
+  "content": [
+    {
+      "type": "text",
+      "text": "Hello! How can I help you?"
+    }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 10,
+    "output_tokens": 8
+  }
+}
+```
+
+## 🌍 国际化
+
+代理服务器支持中文和英文两种语言：
+
+- 自动检测客户端语言（基于User-Agent）
+- 服务器启动信息使用检测到的语言显示
+- 日志消息支持双语
+
+## 📝 配置说明
+
+在 `Config` 类中可以配置以下参数：
+
+```python
+class Config:
+    # OpenAI后端服务地址
+    OPENAI_BASE_URL = "http://10.108.201.163:1025"
+    OPENAI_CHAT_ENDPOINT = "/v1/chat/completions"
+
+    # 代理服务器配置
+    HOST = "0.0.0.0"  # 监听地址
+    PORT = 8082       # 监听端口
+```
+
+## ❗ 错误处理
+
+代理服务器返回标准的Anthropic错误格式：
+
+```json
+{
+  "error": {
+    "type": "invalid_request_error",
+    "message": "messages field is required"
+  }
+}
+```
+
+常见错误类型：
+- `invalid_request_error` - 请求格式错误
+- `feature_not_supported` - 不支持的功能
+- `api_error` - 上游服务错误
+
+## 🔧 故障排除
+
+### 问题：连接被拒绝
+- 确保代理服务器正在运行
+- 检查端口8082是否被占用
+
+### 问题：上游服务错误
+- 检查OpenAI风格服务是否正常运行
+- 验证网络连接是否正常
+- 查看`/tmp/local_anthropic.log`日志文件
+
+### 问题：请求格式错误
+- 确保发送的请求符合Anthropic Messages API规范
+- 验证JSON格式是否正确
+
+## 📋 开发计划
+
+- [ ] 支持更多OpenAI参数（如presence_penalty, frequency_penalty）
+- [ ] 添加请求/响应日志记录
+- [ ] 支持认证和API密钥验证
+- [ ] 添加请求速率限制
+- [ ] 支持WebSocket连接
+
+## 🤝 贡献
+
+欢迎提交Issue和Pull Request！
+
+## 📄 许可证
+
+MIT License - 详见 [LICENSE](LICENSE) 文件
+
+## 🙏 致谢
+
+- 感谢Anthropic和OpenAI提供的优秀API
+- 感谢所有贡献者的支持
+
+## 📧 联系方式
+
+如有问题或建议，请：
+- 提交Issue：https://github.com/yourusername/anthropic-openai-proxy/issues
+- 发送邮件：your.email@example.com
